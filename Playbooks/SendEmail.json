@@ -1,0 +1,142 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_Send_basic_email_name": {
+            "defaultValue": "Send-basic-email",
+            "type": "String"
+        },
+        "connections_azuresentinel_Send_basic_email_externalid": {
+            "defaultValue": "/subscriptions/f3bf2192-d421-420c-9130-57e17571b539/resourceGroups/SentinelTestSetup/providers/Microsoft.Web/connections/azuresentinel-Send-basic-email",
+            "type": "String"
+        },
+        "connections_office365_1_externalid": {
+            "defaultValue": "/subscriptions/f3bf2192-d421-420c-9130-57e17571b539/resourceGroups/SentinelTestSetup/providers/Microsoft.Web/connections/office365-1",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_Send_basic_email_name')]",
+            "location": "eastus",
+            "tags": {
+                "hidden-SentinelTemplateName": "Send-basic-email",
+                "hidden-SentinelTemplateVersion": "1.0"
+            },
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Microsoft_Sentinel_incident": {
+                            "type": "ApiConnectionWebhook",
+                            "inputs": {
+                                "body": {
+                                    "callback_url": "@{listCallbackUrl()}"
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                    }
+                                },
+                                "path": "/incident-creation"
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Compose_Incident_link": {
+                            "runAfter": {
+                                "Create_HTML_table_with_Entities": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Compose",
+                            "inputs": "<a href=\"qwerty\">@{triggerBody()?['object']?['properties']?['incidentUrl']}</a>"
+                        },
+                        "Create_HTML_table_with_Entities": {
+                            "runAfter": {
+                                "Select_Entities": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Table",
+                            "inputs": {
+                                "format": "HTML",
+                                "from": "@body('Select_Entities')"
+                            }
+                        },
+                        "Select_Entities": {
+                            "runAfter": {},
+                            "type": "Select",
+                            "inputs": {
+                                "from": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                                "select": {
+                                    "Entity": "@item()?['properties']?['friendlyName']",
+                                    "Entity Type": "@item()?['kind']"
+                                }
+                            }
+                        },
+                        "Send_an_email_with_Incident_details": {
+                            "runAfter": {
+                                "Compose_Incident_link": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "body": {
+                                    "Body": "<p><span style=\"font-size: 16px\"><strong>New incident created in Azure Sentinel. Incident details:</strong></span><br>\n<br>\n<span style=\"font-size: 14px\"><strong>Incident title:<br>\n</strong></span>@{triggerBody()?['object']?['properties']?['title']}<br>\n<br>\n<span style=\"font-size: 14px\"><strong>Incident ID:<br>\n</strong></span>@{triggerBody()?['object']?['properties']?['incidentNumber']}<br>\n<br>\n<span style=\"font-size: 14px\"><strong>Creation time:<br>\n</strong></span>@{triggerBody()?['object']?['properties']?['createdTimeUtc']}<br>\n<br>\n<span style=\"font-size: 14px\"><strong>Severity:<br>\n</strong></span>@{triggerBody()?['object']?['properties']?['severity']}<br>\n<br>\n<span style=\"font-size: 14px\"><strong>Alert providers:<br>\n</strong></span>@{join(triggerBody()?['object']?['properties']?['additionalData']?['alertProductNames'], '<br />')}<br>\n<br>\n<span style=\"font-size: 14px\"><strong>Tactics:<br>\n</strong></span>@{join(triggerBody()?['object']?['properties']?['additionalData']?['tactics'], '<br />')}<br>\n<br>\n<span style=\"font-size: 14px\"><strong>Description:<br>\n</strong></span>@{triggerBody()?['object']?['properties']?['description']}<br>\n<br>\n<span style=\"font-size: 14px\"><strong>Entities:<br>\n</strong></span><span style=\"font-size: 12px\"></span><span style=\"font-size: 12px\">@{body('Create_HTML_table_with_Entities')}</span><span style=\"font-size: 12px\"></span><br>\n<br>\n<span style=\"font-size: 14px\"><strong>Incident link:<br>\n</strong></span>@{outputs('Compose_Incident_link')}<br>\n</p>",
+                                    "Importance": "High",
+                                    "Subject": "New Azure Sentinel Incident - @{triggerBody()?['object']?['properties']?['title']}",
+                                    "To": "michaelgeary96@gmail.com"
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['office365_2']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "path": "/v2/Mail"
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuresentinel": {
+                                "connectionId": "[parameters('connections_azuresentinel_Send_basic_email_externalid')]",
+                                "connectionName": "[concat('azuresentinel-', parameters('workflows_Send_basic_email_name'))]",
+                                "connectionProperties": {
+                                    "authentication": {
+                                        "type": "ManagedServiceIdentity"
+                                    }
+                                },
+                                "id": "/subscriptions/f3bf2192-d421-420c-9130-57e17571b539/providers/Microsoft.Web/locations/eastus/managedApis/azuresentinel"
+                            },
+                            "office365_2": {
+                                "connectionId": "[parameters('connections_office365_1_externalid')]",
+                                "connectionName": "office365-1",
+                                "id": "/subscriptions/f3bf2192-d421-420c-9130-57e17571b539/providers/Microsoft.Web/locations/eastus/managedApis/office365"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
